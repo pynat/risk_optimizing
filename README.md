@@ -70,7 +70,7 @@ Average persistence: 70.9%
 - bb_position:        0.1118
 - vol_persistence:    0.1041
 
----
+
 
 The model shows strong out-of-sample performance, outperforming the baseline and capturing persistent volatility regimes in ETH dollar bars. Predictive power is highest in low- and high-volatility states.
 
@@ -125,29 +125,77 @@ All 30 features passed ADF stationarity testing. Binary features were validated 
 
 ![Correlation Features](results/correlation.png)
 
-Correlation analysis is used to identify redundant feature groups and control multicollinearity. It serves as a structural filter, not a measure of predictive importance. Feature ranking and final selection are performed post-training via MDI/MDA.
+Correlation analysis identifies redundant feature groups and controls multicollinearity.
+It serves as a structural filter, not a measure of predictive importance. Feature
+ranking and final selection are performed post-training via MDI/MDA.
 
-One cluster was identified at a threshold of 0.85: `vwap_distance`, `rsi`, `bb_position` (max correlation 0.93). All three features encode normalized price location relative to a reference (VWAP, momentum oscillator, volatility bands), resulting in high redundancy.
+One cluster was identified at a threshold of 0.85: `rsi`, `bb_position`,
+`vwap_distance` (max correlation 0.89). All three encode normalized price location
+relative to a reference (momentum oscillator, volatility bands, VWAP), producing
+high lag=0 redundancy.
 
+However, correlation alone cannot determine which features to drop. PCMCI resolves
+this: `rsi` and `bb_position` accumulate past price action and carry memory across
+bars, giving them genuine outgoing causal links to `ret_raw` and `ret_5`.
+`vwap_distance` is a snapshot of where price landed, no memory, no outgoing return
+links. It is flagged for deletion. `rsi` and `bb_position` are retained despite
+their mutual correlation (0.89), as they have different memory structures and may
+provide complementary signal.
 
 ---
 ## Causal Discovery (PCMCI)
 
-Causal discovery PCMCI (Tigramite, ParCorr, α=0.05, lags 1–5) was used to map directional dependencies between features, identifying true drivers vs. downstream nodes before model training and preventing spurious correlations and look-ahead bias by construction.
+Causal discovery via PCMCI (Tigramite, ParCorr, α=0.05, lags 1–5) was used to map
+directional dependencies between features, separating true drivers from downstream
+nodes before model training.
 
-**Purpose:** Cross-validate MDI/MDA importance scores with structural causal evidence. Features that rank high in MDI but are causally downstream are flagged as noise candidates.
+**Purpose:** Identify genuine predictive signals vs. construction artifacts. Features
+with high MDI/MDA but purely downstream or self-correlated structure are flagged as
+noise candidates.
 
+**Key findings:**
 
-Key findings:
-- `vwap_distance`, `rsi`, and `bb_position` are the strongest causal drivers 
-  of `drawdown` (lag=1, strengths: 0.94, 0.90, 0.82)
-- `atr_normalized` drives both `drawdown` (0.67) and `extreme_streak` (0.52) 
-  at lag=1, volatility expansion predicts extreme bar sequences
-- `bb_width` drives volatility, momentum, drawdown, and vwap_distance 
-  across multiple lags, most connected upstream node
-- 293 significant causal links identified; no contradictions with temporal ordering
-- Results used as structural prior for MDI/MDA feature importance interpretation
+Most significant links are construction artifacts — features computed from the same
+underlying series (e.g. `dollar_vol_z → dollar_volume`, `ret_5 ↔ ret_raw`,
+`rsi/bb_position/ret_raw → vwap_distance`). These reflect mathematical overlap,
+not market causality.
 
+Genuine causal signals (non-overlapping computation, independent sources):
+- `rsi → ret_raw / ret_5` (lag 1, 0.15 / 0.23): strongest real signal;
+  momentum extreme predicts next return — classic mean-reversion source
+- `bb_position → ret_5` (lag 1, 0.15): price location in bands predicts
+  multi-bar move direction
+- `rsi → atr_normalized` (lag 1, 0.22): momentum extremes precede range expansion
+- `atr_normalized → volume` (lag 1, 0.39): volatility spikes attract liquidity
+- `volatility_7b → dollar_volume` (lag 1, 0.21): vol expansion draws capital flow
+- `volume_change → drawdown` (lag 1, 0.18): volume surge precedes selling pressure
+- `volatility_7b → extreme_streak` (lag 1, 0.22): vol regime predicts return clustering
+
+**Correlation vs. causation:**
+
+Correlation analysis flagged `rsi`, `bb_position`, and `vwap_distance` as
+near-duplicates (corr > 0.85). PCMCI resolves the apparent contradiction:
+all three measure current price position concurrently (lag=0 redundancy), but differ
+structurally. `rsi` and `bb_position` accumulate past price action and carry memory
+into t+1. `vwap_distance` is a snapshot — it shows where price landed, not how it
+got there. PCMCI confirms: `rsi` and `bb_position` have genuine outgoing links to
+return targets; `vwap_distance` does not. Both are kept despite high correlation —
+they have different memory structures and may be complementary.
+
+**Deletion candidates (no causal link to ret_raw / ret_5):**
+- `vwap_distance`: result node only, caused by rsi/bb_position/ret_raw
+- `dollar_volume`: pure autocorrelation, no outgoing return links
+- `drawdown`: strong self-persistence (0.68), zero links to return targets
+- `extreme_streak`: peripheral node, no return links
+- `rolling_vol`: near-pure autocorrelation, borderline ret_5 link at 0.05
+- `position_size_factor`: routes only to vol_regime/vol_momentum, not returns
+
+Colud be considered removing: `dollar_vol_z`, `vol_regime`,
+`volume_change`, `volatility_7b`.
+
+**Interpretation:** PCMCI results are used as a structural filter.
+Granger-causality confirms directionality but does not imply physical causation.
+Binary features were excluded from PCMCI; only continuous/ordinal features tested.
 
 
 ![PCMCI Algorithm With Strongest Edges](results/pcmci_dag.png)
