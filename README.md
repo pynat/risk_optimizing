@@ -19,8 +19,7 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 ### Methodology
 
 - **Dollar Bar Construction** $500M threshold, 2431 bars over 3 years, validated via Durbin-Watson (1.95) and Ljung-Box (p > 0.4)
-- **Feature Engineering** volatility, volume, drawdown, technical and order
-  flow features, all ADF-tested for stationarity (36/36 passed)
+- **Feature Engineering** volatility, volume, drawdown, technical and order flow features, all ADF-tested for stationarity (36/36 passed)
 - **Correlation Analysis** multicollinearity hygiene via clustering (threshold 0.85), not feature selection
 - **Causal Discovery** PCMCI map feature dependency structure and identify true drivers vs downstream nodes
 - **Triple Barrier Labeling** PT = 1.5x ATR, SL = 1.0x ATR, max hold = 20 bars
@@ -111,6 +110,7 @@ Features are grouped by domain and mapped to distributional properties of the re
 | Composite | `market_stress`, `rolling_vol` | Multi-signal regime indicators |
 
 All 36 features passed stationarity validation. Continuous features were confirmed via ADF test (all p < 0.05). Binary and near-constant features were excluded from ADF and validated separately, none were dropped.
+   
 ---
 
 ## Correlation Analysis
