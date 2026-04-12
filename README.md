@@ -4,17 +4,17 @@
 
 ## Overview
 
-Marcos López de Prado argues that most machine learning models in finance fail not because of model complexity, but due to **spurious features**, statistical relationships that do not reflect the true data-generating process.
+Marcos López de Prado argues that most machine learning models in finance fail due to **spurious features**, statistical relationships that do not reflect the true data-generating process.
 
-This project implements de Prado's ML framework on ETH/USDT, extended with causal discovery as a methodological guardrail. The system predicts **volatility regimes** for Volatility targeting, Strategy switching, Risk overlays.
+This project implements de Prado's ML framework on ETH/USDT, extended with causal discovery as a methodological guardrail, predicting **volatility regimes** for Volatility targeting, Strategy switching, Risk overlays.
 
-To address limitations of time-based sampling, the analysis is conducted on **dollar bars** ($500M threshold), which sample observations based on traded value. This reduces heteroskedasticity, improves serial independence of returns, and aligns data with actual market activity.
+The analysis is conducted on **dollar bars** ($500M threshold), which sample observations based on traded value. This reduces heteroskedasticity, improves serial independence of returns, and aligns data with actual market activity.
 
 ---
 
 ### Research Question
 
-*DDoes causal feature selection improve the predictability of volatility regimes in ETH dollar bars under purged cross-validation?*
+*Does causal feature selection improve the predictability of volatility regimes in ETH dollar bars under purged cross-validation?*
 
 ### Methodology
 
@@ -389,7 +389,7 @@ when `ret_prob < 0.45`. Stop-loss at 1.0x ATR, take-profit at 1.5x ATR.
 
 ![Equity Curve](results/backtest_equity.png)
 
-**Limitations:** 94 trades over 1.5 years is statistically thin. The
+Limitations: 94 trades over 1.5 years is statistically thin. The
 benchmark period (Aug 2024 - Mar 2026) was a bear market for ETH, which
 amplifies relative performance. Hyperparameters were selected on the same
 data period, no fully independent out-of-sample period exists. This
