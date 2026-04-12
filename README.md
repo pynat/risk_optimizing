@@ -389,11 +389,10 @@ when `ret_prob < 0.45`. Stop-loss at 1.0x ATR, take-profit at 1.5x ATR.
 
 ![Equity Curve](results/backtest_equity.png)
 
-Limitations: 94 trades over 1.5 years is statistically thin. The
-benchmark period (Aug 2024 - Mar 2026) was a bear market for ETH, which
-amplifies relative performance. Hyperparameters were selected on the same
-data period, no fully independent out-of-sample period exists. This
-backtest is a proof-of-concept, not a validated trading system.
+
+Limitations: 94 trades over 1.5 years is statistically thin. The benchmark period (Aug 2024 - Mar 2026) was a bear market for ETH, which amplifies relative performance. Hyperparameters were selected on the same
+data period, no fully independent out-of-sample period exists. This backtest is a proof-of-concept, not a validated trading system.
+  
 ---
 
 
