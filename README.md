@@ -116,24 +116,15 @@ All 36 features passed stationarity validation. Continuous features were confirm
 ## Correlation Analysis
 
 Correlation analysis identifies redundant feature groups and controls multicollinearity.
-It serves as a structural filter, not a measure of predictive importance. Feature
-ranking and final selection are performed post-training via MDI/MDA.
+It serves as a structural filter, not a measure of predictive importance. Feature ranking and final selection are performed post-training via MDI/MDA.
 
 Three clusters were identified at a threshold of 0.85:
 
-- **Cluster 1:** `volume`, `taker_base` (corr 0.98), both measure raw traded quantity,
-  near-identical information content
-- **Cluster 2:** `dollar_volume`, `taker_quote`, `taker_sell_vol` (max corr 0.90), all
-  encode dollar-denominated flow; buy and sell volume sum to total dollar volume by
-  construction
-- **Cluster 3:** `vwap_distance`, `rsi`, `bb_position` (max corr 0.89), all encode
-  normalized price location relative to a reference (VWAP, momentum oscillator,
-  volatility bands), producing high lag=0 redundancy
+- **Cluster 1:** `volume` = total traded volume → includes: market buys (taker buy), market sells (taker sell), `taker_base` = sum of all market buy orders in the base asset (corr 0.98)
+- **Cluster 2:** `dollar_volume` = price × volume, measures capital flow in USD, `taker_quote`, `taker_sell_vol`= volume of market sell orders (max corr 0.90)
+- **Cluster 3:** `vwap_distance`, `rsi`, `bb_position` (max corr 0.89), all encode normalized price location relative to a reference (VWAP, momentum oscillator, volatility bands), producing high lag=0 redundancy
 
-Correlation alone cannot determine which features to drop. PCMCI resolves this:
-`rsi` and `bb_position` accumulate past price action and carry memory across bars,
-giving them genuine outgoing causal links to `ret_raw` and `ret_5`. `vwap_distance`
-is a snapshot of where price landed, no memory, no outgoing return. Within Clusters 1 and 2, representative features are retained and duplicates resolved via PCMCI causal link strength.
+Due to correlation alaysis one would drop features of this group, but we will keep them for further research.
 
 ![Correlation Features](results/correlation.png)  
    
@@ -144,9 +135,7 @@ Causal discovery via PCMCI (Tigramite, ParCorr, α=0.05, lags 1–5) was used to
 directional dependencies between features, separating true drivers from downstream
 nodes before model training.
 
-**Purpose:** Identify genuine predictive signals vs. construction artifacts. Features
-with high MDI/MDA but purely downstream or self-correlated structure are flagged as
-noise candidates.
+**Purpose:** Identify genuine predictive signals vs. construction artifacts. 
 
 894 significant causal links detected. The majority are construction artifacts,
 features computed from the same underlying series:
