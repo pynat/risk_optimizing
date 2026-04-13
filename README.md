@@ -137,7 +137,22 @@ nodes before model training.
 
 **Purpose:** Identify genuine predictive signals vs. construction artifacts. 
 
-894 significant causal links detected. The majority are construction artifacts,
+
+**Causal links to return targets:**
+- `volume_change → ret_raw` (lag 1, 0.23): strongest real signal, abnormal volume
+  growth directly predicts the primary return target
+- `bb_width → ret_raw` (lag 1, 0.16): band expansion precedes directional move
+- `rsi → ret_5` (lag 1–2): momentum extreme predicts multi-bar return direction
+
+**Cross-domain links:**
+- `rsi / ret_raw → drawdown` (lag 1, 0.78 / 0.88): momentum extremes and recent
+  losses predict cumulative drawdown, drawdown is a sink node
+- `atr_normalized / vol_momentum / vol_regime → extreme_streak` (lag 1, 0.24–0.42):
+  regime-level vol predicts tail event persistence, extreme_streak is a sink node
+- `market_stress → vol_momentum` (lag 1, 0.28): composite stress drives vol
+  trajectory, vol_momentum is a neutral node
+
+**Construction artifacts:**
 features computed from the same underlying series:
 - `ofi → taker_sell_vol / taker_quote` (0.98): by definition, ofi is the normalized
   difference of those two quantities
@@ -149,39 +164,23 @@ features computed from the same underlying series:
 - `volume_change → taker_base / taker_quote / taker_sell_vol` (0.45–0.69):
   volume_change is derived directly from `volume`
 
-**Genuine causal links to return targets (actionable signals):**
-- `volume_change → ret_raw` (lag 1, 0.23): strongest real signal, abnormal volume
-  growth directly predicts the primary return target
-- `bb_width → ret_raw` (lag 1, 0.16): band expansion precedes directional move
-- `rsi → ret_5` (lag 1–2): momentum extreme predicts multi-bar return direction
-
-**Genuine cross-domain links (non-artifact, but targets are sinks):**
-- `rsi / ret_raw → drawdown` (lag 1, 0.78 / 0.88): momentum extremes and recent
-  losses predict cumulative drawdown, real mechanism, but drawdown is a sink node
-- `atr_normalized / vol_momentum / vol_regime → extreme_streak` (lag 1, 0.24–0.42):
-  regime-level vol predicts tail event persistence, extreme_streak is a sink node
-- `market_stress → vol_momentum` (lag 1, 0.28): composite stress drives vol
-  trajectory, vol_momentum is a neutral node, not a return target
-
-**Correlation vs. causation:**
+**Correlation vs. Causation:**
 
 Correlation analysis flagged `rsi`, `bb_position`, and `vwap_distance` as
-near-duplicates (corr > 0.85). PCMCI resolves this: `rsi` and `bb_position`
-carry memory across bars with genuine outgoing links to `ret_5`; `vwap_distance`
-is a result node only, caused by all three, with no outgoing return links.
-`vwap_distance` is confirmed for deletion.
+near-duplicates (corr > 0.85).   
+PCMCI shows`bb_position` with outgoing link to `vwap_distance`.
+`rsi`in interaction with `ret_5` and a link to `drawdown`.
+`vwap_distance` is shown as a sink node, influenced by several features, `bb_width`, `atr_normalized`, `return_5`.
 
-**Deletion candidates (no causal link to ret_raw / ret_5):**
-- `vwap_distance`: pure sink, caused by rsi / bb_position / ret_raw
+**Sink Nodes, No Outgoing Edges:**
+- `vwap_distance`: caused by rsi / bb_position / ret_raw etc.
 - `dollar_volume`: pure sink driven by volume_zscore, dollar_vol_z, volume_change
 - `taker_quote`, `taker_sell_vol`: sinks by construction via ofi and volume_change
 - `taker_base`: peripheral sink, no return links
 - `rolling_vol`: near-pure autocorrelation, no outgoing return links
 - `extreme_streak`: sink, receives from vol / atr, no return links
 - `drawdown`: driven by rsi / ret_raw, result node, not a predictor
-
-Could be considered removing: `ofi`, `trades_change`, `trade_intensity_z`
-(all route into construction-artifact sinks rather than return targets).
+- `volume`, `rolling_vol`
 
 **Interpretation:** PCMCI results are used as a structural filter.
 Binary features were excluded from PCMCI; only continuous/ordinal features tested.
@@ -195,9 +194,9 @@ Binary features were excluded from PCMCI; only continuous/ordinal features teste
 **Triple Barrier Labeling** (de Prado) replaces naive return-direction labels with
 structurally sound targets:
 
-- **Upper barrier:** Profit target at 1.5x ATR
-- **Lower barrier:** Stop-loss at 1.0x ATR
-- **Vertical barrier:** Maximum hold of 20 bars
+- **Upper Barrier:** Profit target at 1.5x ATR
+- **Lower Barrier:** Stop-loss at 1.0x ATR
+- **Vertical Barrier:** Maximum hold of 20 bars
 
 Split: 1423 train / 590 test bars, 20-bar embargo at the boundary to prevent leakage.
 Target balance (train): 0.55, near-balanced, no resampling required.
