@@ -18,7 +18,7 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 
 ### Methodology
 
-- **Dollar Bar Construction** $500M threshold, 2431 bars over 3 years, validated via Durbin-Watson (1.95) and Ljung-Box (p > 0.4)
+- **Dollar Bar Construction** $500M threshold, 2431 bars over 3 years, validated via Durbin-Watson (1.94) and Ljung-Box (lag 10: p=0.65, lag 20: p=0.83)
 - **Feature Engineering** volatility, volume, drawdown, technical and order flow features, all ADF-tested for stationarity (36/36 passed)
 - **Correlation Analysis** multicollinearity hygiene via clustering (threshold 0.85), not feature selection
 - **Causal Discovery** PCMCI map feature dependency structure and identify true drivers vs downstream nodes
@@ -38,7 +38,7 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 |---|---|
 | Regime model accuracy | 0.632, lift +19.5pp over baseline |
 | AUC low / med / high | 0.859 / 0.723 / 0.913 |
-| Return model AUC (global) | 0.596 |
+| Return model AUC (regime-conditioned) | 0.596 |
 | Return model AUC (high regime) | 0.658 (+0.062 vs global) |
 | Backtest total return | +157.3% vs -27.7% buy & hold |
 | Backtest Sharpe (walk-forward) | 1.735 |
@@ -179,7 +179,7 @@ PCMCI shows`bb_position` with outgoing link to `vwap_distance`.
 - `rolling_vol`: near-pure autocorrelation, no outgoing return links
 - `extreme_streak`: sink, receives from vol / atr, no return links
 - `drawdown`: driven by rsi / ret_raw, result node, not a predictor
-- `volume`, `rolling_vol`
+- `volume`: driven by `volume_zscore`, `dollar_vol_z`, `rsi`, `atr_normalized`
 
 **Interpretation:** PCMCI results are used as a structural filter.
 Binary features were excluded from PCMCI; only continuous/ordinal features tested.
@@ -208,18 +208,19 @@ A Random Forest was trained on all stationary features with triple barrier label
 - **MDI (Mean Decrease Impurity):** In-sample, computed from tree structure. Fast but biased toward high-cardinality and correlated features.
 - **MDA (Mean Decrease Accuracy):** Out-of-sample permutation importance on held-out data. 
 
-The gap between MDI and MDA revealed the key finding of this stage:
 
 | Feature | MDI Rank | MDA | Verdict |
 |---|---|---|---|
-| `volume` | 1 | negative | noise, no causal return link |
-| `bb_width` | 2 | positive | genuine signal |
-| `taker_base` | 3 | positive | genuine signal |
-| `rsi` | 6 | negative | noise, causally downstream |
-| `vwap_distance` | 8 | negative | noise, confirmed sink node |
+| `volume` | 1 | +0.0118 | genuine signal, no direct causal return link in PCMCI |
+| `bb_width` | 2 | +0.0033 | genuine signal |
+| `taker_base` | 3 | +0.0072 | genuine signal |
+| `rsi` | 6 | -0.0124 | noise, causally downstream |
+| `vwap_distance` | 8 | -0.0033 | noise, confirmed sink node |
 
 RF1 (all features): train 0.701 / test 0.573. The 12.8pp gap signals overfitting.
 22 features were dropped: 20 with negative MDA, 2 combined weak.
+
+`volume` carries the strongest MDA signal (+0.0118) despite lacking a direct causal return link in PCMCI. PCMCI tests direct lagged causal paths. `volume` likely acts as a proxy for latent market activity that PCMCI does not resolve into a single direct edge.
 
 **Final Feature Set (10 features, MDI/MDA validated):**
 
@@ -228,7 +229,7 @@ RF1 (all features): train 0.701 / test 0.573. The 12.8pp gap signals overfitting
 | `bb_width` | direct return link (ret_raw) |
 | `atr_normalized` | driver of extreme_streak |
 | `drawdown` | sink in PCMCI, but MDI/MDA confirmed |
-| `volume` | weak return link in PCMCI |
+| `volume` | sink in PCMCI |
 | `taker_base` | peripheral in PCMCI, MDA confirmed |
 | `position_size_factor` | neutral node |
 | `trade_intensity_z` | routes to artifact sinks |
@@ -331,10 +332,8 @@ structure through `vol_regime_change` and `deep_drawdown`.
 | Medium | 889 | 0.553 | -0.043 |
 | High   | 581 | 0.658 | +0.062 |
 
-The global AUC of 0.596 is a weighted average, strong signal in
-high-volatility periods diluted by noise in low and medium regimes.
+The global AUC of 0.596 reflects mixed signal, concentrated in high-volatility periods and diluted by noise in low and medium regimes.
 
- 
 
 **Walk-Forward Backtest:**
 
@@ -360,7 +359,9 @@ when `ret_prob < 0.45`. Stop-loss at 1.0x ATR, take-profit at 1.5x ATR.
 ![Equity Curve](results/backtest_equity.png)
 
 
-Limitations: 94 trades over 1.5 years, benchmark period (Aug 2024 - Mar 2026) was a bear market for ETH, which amplifies relative performance. Hyperparameters were selected on the same data period, no fully independent out-of-sample period exists. This backtest is a proof-of-concept, not a validated trading system.
+**Limitations:** 
+94 trades over 1.5 years, benchmark period (Aug 2024 - Mar 2026) was a bear market for ETH. Hyperparameters were selected on the same data period, no fully independent out-of-sample period exists.    
+This backtest is a proof-of-concept, not a validated trading system.
   
 ---
 
