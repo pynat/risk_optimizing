@@ -14,7 +14,7 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 
 ### Research Question
 
-*Does causal feature selection improve the predictability of volatility regimes in ETH dollar bars under purged cross-validation?*
+*Can causal feature selection and volatility regime conditioning produce a predictive edge in ETH dollar bars, and does this edge survive walk-forward validation with a deployable trading strategy?*
 
 ### Methodology
 
@@ -22,28 +22,32 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 - **Feature Engineering** volatility, volume, drawdown, technical and order flow features, all ADF-tested for stationarity (36/36 passed)
 - **Correlation Analysis** multicollinearity hygiene via clustering (threshold 0.85), not feature selection
 - **Causal Discovery** PCMCI map feature dependency structure and identify true drivers vs downstream nodes
-- **Triple Barrier Labeling** PT = 1.5x ATR, SL = 1.0x ATR, max hold = 20 bars
+- **Triple Barrier Labeling** pt_sl=[2.5, 2.5] ATR, max hold=20 bars, 
+  1.4% single-step breach rate, 11.1% timeout rate
 - **Random Forest with Purged K-Fold CV** n=5 folds, embargo=1%, prevents temporal leakage
 - **MDI/MDA Feature Importance** cross-referenced with causal graph to validate signal vs noise
+- **Per-Regime Model Evaluation** separate RF per regime, high-vol identified 
+  as sole regime with positive edge (auc=0.658, delta=+0.062 vs global)
+- **Walk-Forward Backtest** expanding window, hmm+rf refitted every 50 bars, 
+  trade signal active only in predicted high-vol regime, no future leakage
 
 
 ### Key Finding
 
-Causal discovery and MDI/MDA produced **mutually explanatory results**. RSI ranked 3rd by MDI (in-sample importance) but last by MDA (out-of-sample). PCMCI explained the mechanism: RSI is a pure downstream node driven by `vwap_distance`, `bb_width`, and `drawdown`, it carries no independent predictive signal. MDI was deceived by its correlation with genuine drivers. This cross-validation is the primary methodological contribution of the hybrid framework.
+    
 
 
 ### Results (out-of-sample, purged CV)
 
 | Metric | Value |
 |---|---|
-| Regime model accuracy | 0.632 ±0.020 |
-| Lift over majority baseline | +19.5pp |
+| Regime model accuracy | 0.632, lift +19.5pp over baseline |
 | AUC low / med / high | 0.859 / 0.723 / 0.913 |
-| Average regime persistence | 70.9% |
-| Return model AUC (global) | 0.587 |
-| Return model AUC (high regime) | 0.658 |
+| Return model AUC (global) | 0.596 |
+| Return model AUC (high regime) | 0.658 (+0.062 vs global) |
+| Backtest total return | +157.3% vs -27.7% buy & hold |
 | Backtest Sharpe (walk-forward) | 1.735 |
-| Backtest max drawdown | -22.01% |
+| Backtest max drawdown | -22.0% vs -65.0% buy & hold |
 
 **Regime persistence (P(next \| current)):**
 
@@ -57,10 +61,10 @@ Causal discovery and MDI/MDA produced **mutually explanatory results**. RSI rank
 
 | Feature | Importance |
 |---|---|
-| `market_stress` | 0.386 |
-| `volatility_7b` | 0.269 |
-| `bb_position` | 0.112 |
-| `vol_persistence` | 0.104 |
+| `market_stress` | 0.374 |
+| `volatility_7b` | 0.290 |
+| `bb_position` | 0.108 |
+| `vol_persistence` | 0.100 |
 
 
 
@@ -109,14 +113,14 @@ Features are grouped by domain and mapped to distributional properties of the re
 | Returns | `ret_raw`, `ret_5` | Short-term momentum signals |
 | Composite | `market_stress`, `rolling_vol` | Multi-signal regime indicators |
 
-All 36 features passed stationarity validation. Continuous features were confirmed via ADF test (all p < 0.05). Binary and near-constant features were excluded from ADF and validated separately, none were dropped.
+All 36 features passed stationarity validation. Continuous features were confirmed via ADF test (all p < 0.05). Binary and near-constant features were excluded from ADF.
    
 ---
 
 ## Correlation Analysis
 
 Correlation analysis identifies redundant feature groups and controls multicollinearity.
-It serves as a structural filter, not a measure of predictive importance. Feature ranking and final selection are performed post-training via MDI/MDA.
+Feature ranking and final selection are performed post-training via MDI/MDA.
 
 Three clusters were identified at a threshold of 0.85:
 
@@ -191,11 +195,10 @@ Binary features were excluded from PCMCI; only continuous/ordinal features teste
 
 ## Triple Barrier Labeling & Feature Importance
 
-**Triple Barrier Labeling** (de Prado) replaces naive return-direction labels with
-structurally sound targets:
+**Triple Barrier Labeling** (de Prado) replaces naive return-direction labels with structurally sound targets:
 
 - **Upper Barrier:** Profit target at 1.5x ATR
-- **Lower Barrier:** Stop-loss at 1.0x ATR
+- **Lower Barrier:** Stop-loss at 2.0x ATR
 - **Vertical Barrier:** Maximum hold of 20 bars
 
 Split: 1423 train / 590 test bars, 20-bar embargo at the boundary to prevent leakage.
@@ -344,21 +347,20 @@ structure through `vol_regime_change` and `deep_drawdown`.
 
 | Regime | Bars | AUC | Delta vs global |
 |---|---|---|---|
-| Low | 562 | 0.542 | -0.045 |
-| Medium | 889 | 0.553 | -0.033 |
-| High | 581 | 0.658 | +0.071 |
+| Low    | 562 | 0.542 | -0.054 |
+| Medium | 889 | 0.553 | -0.043 |
+| High   | 581 | 0.658 | +0.062 |
 
-This is the key finding: **predictive edge is concentrated entirely in the
-high-volatility regime.** The global AUC of 0.587 is a weighted average,
-strong signal in high-volatility periods diluted by noise in low and medium
-regimes. The high-regime model (AUC 0.658, std 0.069) is consistent across
-all folds with no outlier.
+The global AUC of 0.596 is a weighted average, strong signal in
+high-volatility periods diluted by noise in low and medium regimes.
+
+ 
 
 **Walk-forward backtest:**
 
 The regime classifier and return model are combined into a single strategy:
-active only in predicted high-volatility regimes, with ATR-based barriers
-matching the triple barrier labeling scheme. Both models are re-fitted every
+active only in predicted high-volatility regimes. Stop-loss at 1.0x ATR, take-profit at 1.5x ATR. Note: barriers diverge from the triple barrier
+label construction (pt_sl=[2.5, 2.5]) Both models are re-fitted every
 50 bars on past data only, no future information leaks into any prediction.
 HMM Viterbi decoding is limited to the current window to prevent look-ahead
 in state assignment.
@@ -378,8 +380,7 @@ when `ret_prob < 0.45`. Stop-loss at 1.0x ATR, take-profit at 1.5x ATR.
 ![Equity Curve](results/backtest_equity.png)
 
 
-Limitations: 94 trades over 1.5 years is statistically thin. The benchmark period (Aug 2024 - Mar 2026) was a bear market for ETH, which amplifies relative performance. Hyperparameters were selected on the same
-data period, no fully independent out-of-sample period exists. This backtest is a proof-of-concept, not a validated trading system.
+Limitations: 94 trades over 1.5 years, benchmark period (Aug 2024 - Mar 2026) was a bear market for ETH, which amplifies relative performance. Hyperparameters were selected on the same data period, no fully independent out-of-sample period exists. This backtest is a proof-of-concept, not a validated trading system.
   
 ---
 
