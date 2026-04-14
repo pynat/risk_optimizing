@@ -14,7 +14,7 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 
 ### Research Question
 
-*Can causal feature selection and volatility regime conditioning produce a predictive edge in ETH dollar bars, and does this edge survive walk-forward validation with a deployable trading strategy?*
+*Can causal feature selection and volatility regime conditioning produce a predictive edge that survives walk-forward validation with a deployable trading strategy?*
 
 ### Methodology
 
@@ -32,12 +32,7 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
   trade signal active only in predicted high-vol regime, no future leakage
 
 
-### Key Finding
-
-    
-
-
-### Results (out-of-sample, purged CV)
+## Results (out-of-sample, purged CV)
 
 | Metric | Value |
 |---|---|
@@ -208,14 +203,10 @@ Target balance (train): 0.55, near-balanced, no resampling required.
 
 ![Feature Importance](results/random_forest.png)
 
-A Random Forest was trained on all stationary features with triple barrier labels as
-target. Two importance measures were computed and cross-referenced with causal
-discovery results:
+A Random Forest was trained on all stationary features with triple barrier labels as target. Two importance measures were computed and cross-referenced with causal discovery results:
 
-- **MDI (Mean Decrease Impurity):** In-sample, computed from tree structure. Fast but
-  biased toward high-cardinality and correlated features.
-- **MDA (Mean Decrease Accuracy):** Out-of-sample permutation importance on held-out
-  data. Slower but honest.
+- **MDI (Mean Decrease Impurity):** In-sample, computed from tree structure. Fast but biased toward high-cardinality and correlated features.
+- **MDA (Mean Decrease Accuracy):** Out-of-sample permutation importance on held-out data. 
 
 The gap between MDI and MDA revealed the key finding of this stage:
 
@@ -228,8 +219,7 @@ The gap between MDI and MDA revealed the key finding of this stage:
 | `vwap_distance` | 8 | negative | noise, confirmed sink node |
 
 RF1 (all features): train 0.701 / test 0.573. The 12.8pp gap signals overfitting.
-22 features were dropped: 20 with negative MDA, 2 combined weak (`upside_momentum`,
-`vol_expansion`).
+22 features were dropped: 20 with negative MDA, 2 combined weak.
 
 **Final Feature Set (10 features, MDI/MDA validated):**
 
@@ -252,15 +242,11 @@ in-sample overfitting, zero test signal.
 
 Notable conflict between methods: `drawdown`, `extreme_streak`, and `taker_base`
 were flagged as PCMCI sink nodes but survived MDA selection. Conversely,
-`volume_change` and `rsi` showed direct return links in PCMCI but were eliminated
-by negative MDA. Both signals are retained as evidence, the conflict is documented,
-not resolved.
+`volume_change` and `rsi` showed direct return links in PCMCI but were eliminated by negative MDA. 
 
 **Purged K-Fold Cross Validation**
 
-Standard k-fold leaks future information at fold boundaries due to rolling feature
-windows. Purged CV removes training samples whose window overlaps the test period,
-plus an embargo buffer of 1% of bars (20 bars) after each test fold.
+Standard k-fold leaks future information at fold boundaries due to rolling feature windows. Purged CV removes training samples whose window overlaps the test period, plus an embargo buffer of 1% of bars (20 bars) after each test fold.
 
 | Fold | Train | Test | Accuracy | AUC |
 |---|---|---|---|---|
@@ -271,16 +257,10 @@ plus an embargo buffer of 1% of bars (20 bars) after each test fold.
 | 5 | 1604 | 409 | 0.582 | 0.582 |
 | **mean** | | | **0.551 ±0.020** | **0.587 ±0.023** |
 
-Naive 70/30 test accuracy was 0.573. Purged CV mean is 0.551, a leakage inflation
-of +2.2pp, consistent with rolling feature windows bleeding across the split boundary.
-The purged estimate is the honest number.
+Naive 70/30 test accuracy was 0.573. Purged CV mean is 0.551, a leakage inflation of +2.2pp, consistent with rolling feature windows bleeding across the split boundary.
 
 AUC of 0.587 on triple barrier labels represents a genuine predictive edge and a
-meaningful improvement over the initial full-feature baseline (0.533). The gain is
-attributed to feature selection: 22 noise features removed, signal density per
-feature increased. Accuracy of 0.551 at a baseline of 0.518 is modest (+3.3pp above
-chance) but consistent across all five folds with no outlier fold, confirming the
-edge is structural rather than fold-specific.
+meaningful improvement over the initial full-feature baseline (0.533). Accuracy of 0.551 at a baseline of 0.518 is modest (+3.3pp above chance) but consistent across all five folds with no outlier fold, confirming the edge is structural rather than fold-specific.
 
 ---
 
