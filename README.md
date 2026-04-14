@@ -32,7 +32,7 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
   trade signal active only in predicted high-vol regime, no future leakage
 
 
-## Results (out-of-sample, purged CV)
+## Results (Out-Of-Sample, Purged CV)
 
 | Metric | Value |
 |---|---|
@@ -44,7 +44,7 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 | Backtest Sharpe (walk-forward) | 1.735 |
 | Backtest max drawdown | -22.0% vs -65.0% buy & hold |
 
-**Regime persistence (P(next \| current)):**
+**Regime Persistence (P(next \| current)):**
 
 | | →low | →med | →high |
 |---|---|---|---|
@@ -52,7 +52,7 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 | med | 0.169 | 0.672 | 0.160 |
 | high | 0.012 | 0.250 | 0.738 |
 
-**Regime classifier feature importance (MDI, mean across folds):**
+**Regime Classifier Feature Importance (MDI, Mean Across Folds):**
 
 | Feature | Importance |
 |---|---|
@@ -137,13 +137,13 @@ nodes before model training.
 **Purpose:** Identify genuine predictive signals vs. construction artifacts. 
 
 
-**Causal links to return targets:**
+**Causal Links To Return Targets:**
 - `volume_change → ret_raw` (lag 1, 0.23): strongest real signal, abnormal volume
   growth directly predicts the primary return target
 - `bb_width → ret_raw` (lag 1, 0.16): band expansion precedes directional move
 - `rsi → ret_5` (lag 1–2): momentum extreme predicts multi-bar return direction
 
-**Cross-domain links:**
+**Cross-Domain Links:**
 - `rsi / ret_raw → drawdown` (lag 1, 0.78 / 0.88): momentum extremes and recent
   losses predict cumulative drawdown, drawdown is a sink node
 - `atr_normalized / vol_momentum / vol_regime → extreme_streak` (lag 1, 0.24–0.42):
@@ -151,7 +151,7 @@ nodes before model training.
 - `market_stress → vol_momentum` (lag 1, 0.28): composite stress drives vol
   trajectory, vol_momentum is a neutral node
 
-**Construction artifacts:**
+**Construction Artifacts:**
 features computed from the same underlying series:
 - `ofi → taker_sell_vol / taker_quote` (0.98): by definition, ofi is the normalized
   difference of those two quantities
@@ -199,7 +199,7 @@ Binary features were excluded from PCMCI; only continuous/ordinal features teste
 Split: 1423 train / 590 test bars, 20-bar embargo at the boundary to prevent leakage.
 Target balance (train): 0.55, near-balanced, no resampling required.
 
-**MDI vs MDA: The Core Diagnostic**
+**MDI vs MDA**
 
 ![Feature Importance](results/random_forest.png)
 
@@ -270,10 +270,10 @@ Volatility regimes were identified using a Hidden Markov Model (HMM) and labeled
 as three discrete states: low (0), medium (1), high (2). The regime classifier
 predicts the next bar's regime state using a dedicated 10-feature set.
 
-**Regime distribution:** low 27.7% / medium 43.8% / high 28.6%.
+**Regime Distribution:** low 27.7% / medium 43.8% / high 28.6%.
 Majority-class baseline: 43.8%.
 
-**Persistence structure:**
+**Persistence Structure:**
 
 | Current → Next | Low | Medium | High |
 |---|---|---|---|
@@ -285,7 +285,7 @@ Regimes are strongly self-persistent (diagonal 0.67–0.74). The classifier
 exploits this directly, it predicts whether the current state continues,
 not price direction.
 
-**Purged CV results:**
+**Purged CV Results:**
 
 | Fold | Accuracy | AUC (low) | AUC (med) | AUC (high) |
 |---|---|---|---|---|
@@ -309,11 +309,11 @@ rarely exceeds 0.7 except during sustained high-volatility blocks where
 account for 66% of MDI importance, confirming regimes are fundamentally
 volatility states.
 
-**Regime-conditioned return prediction:**
+### Regime-Conditioned Return Prediction:
 
 Two approaches were tested to combine regime and return models:
 
-*Approach 1, regime probabilities as features:*
+*Approach 1. Regime Probabilities As Features:*
 
 | Metric | Global | Regime-conditioned | Delta |
 |---|---|---|---|
@@ -323,7 +323,7 @@ Two approaches were tested to combine regime and return models:
 Marginal improvement. The global model already captures implicit regime
 structure through `vol_regime_change` and `deep_drawdown`.
 
-*Approach 2, separate model per regime:*
+*Approach 2. Separate Model Per Regime:*
 
 | Regime | Bars | AUC | Delta vs global |
 |---|---|---|---|
@@ -336,7 +336,7 @@ high-volatility periods diluted by noise in low and medium regimes.
 
  
 
-**Walk-forward backtest:**
+**Walk-Forward Backtest:**
 
 The regime classifier and return model are combined into a single strategy:
 active only in predicted high-volatility regimes. Stop-loss at 1.0x ATR, take-profit at 1.5x ATR. Note: barriers diverge from the triple barrier
