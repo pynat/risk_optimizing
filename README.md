@@ -1,6 +1,6 @@
 # UNDER CONSTRUCTION
 
-# De Prado ML Framework with Causal Discovery: Regime Prediction in ETH Dollar Bars
+# De Prado ML Framework with Causal Discovery: Regime Prediction + Strategy for ETH Dollar Bars
 
 ## Overview
 
@@ -22,14 +22,11 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 - **Feature Engineering** volatility, volume, drawdown, technical and order flow features, all ADF-tested for stationarity (36/36 passed)
 - **Correlation Analysis** multicollinearity hygiene via clustering (threshold 0.85), not feature selection
 - **Causal Discovery** PCMCI map feature dependency structure and identify true drivers vs downstream nodes
-- **Triple Barrier Labeling** pt_sl=[2.5, 2.5] ATR, max hold=20 bars, 
-  1.4% single-step breach rate, 11.1% timeout rate
+- **Triple Barrier Labeling** pt_sl=[2.5, 2.5] ATR, max hold=20 bars, 1.4% single-step breach rate, 11.1% timeout rate
 - **Random Forest with Purged K-Fold CV** n=5 folds, embargo=1%, prevents temporal leakage
 - **MDI/MDA Feature Importance** cross-referenced with causal graph to validate signal vs noise
-- **Per-Regime Model Evaluation** separate RF per regime, high-vol identified 
-  as sole regime with positive edge (auc=0.658, delta=+0.062 vs global)
-- **Walk-Forward Backtest** expanding window, hmm+rf refitted every 50 bars, 
-  trade signal active only in predicted high-vol regime, no future leakage
+- **Per-Regime Model Evaluation** separate RF per regime, high-vol identified as sole regime with positive edge (auc=0.658, delta=+0.062 vs global)
+- **Walk-Forward Backtest** expanding window, hmm+rf refitted every 50 bars, trade signal active only in predicted high-vol regime, no future leakage
 
 
 ## Results (Out-Of-Sample, Purged CV)
@@ -70,7 +67,7 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 - **Neutral with negligible positive bias mean return** (0.03%) with median (0.06%) indicates weak bullish drift in the sample period
 - **Moderate volatility** (2.21% per bar), more stable than time bars due to event-based sampling
 - **Near-symmetric distribution** (skewness -0.02) indicates no strong directional asymmetry
-- **Low excess kurtosis** (1.36) suggests extreme events typical for crypto returns
+- **Low excess kurtosis** (1.36) lower than typical crypto time-bar distributions (often >5), consistent with dollar bar sampling reducing heteroskedasticity and compressing tail events
 
 ![Return Distribution](results/return_distribution_dollar_bars.png)
 
@@ -267,13 +264,9 @@ Features with negative MDA or in the bottom 30% of combined rank are dropped (22
 `volume` carries the strongest MDA signal (+0.0118) despite lacking a direct causal return link in PCMCI. PCMCI tests direct lagged causal paths. `volume` likely acts as a proxy for latent market activity that PCMCI does not resolve into a single direct edge.
 
 
-RF2 (final features): train 0.693 / test 0.573, identical test performance with
-less than half the features. The 22 dropped features contributed exclusively to
-in-sample overfitting, zero test signal.
+RF2 (final features): train 0.693 / test 0.573, identical test performance with less than half the features. The 22 dropped features contributed exclusively to in-sample overfitting, zero test signal.
 
-Notable conflict between methods: `drawdown`, `extreme_streak`, and `taker_base`
-were flagged as PCMCI sink nodes but survived MDA selection. Conversely,
-`volume_change` and `rsi` showed direct return links in PCMCI but were eliminated by negative MDA. 
+Notable conflict between methods: `drawdown`, `extreme_streak`, and `taker_base` were flagged as PCMCI sink nodes but survived MDA selection. Conversely, `volume_change` and `rsi` showed direct return links in PCMCI but were eliminated by negative MDA. 
 
 **Purged K-Fold Cross Validation**
 
