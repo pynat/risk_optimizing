@@ -192,12 +192,50 @@ Binary features were excluded from PCMCI; only continuous/ordinal features teste
 
 **Triple Barrier Labeling** (de Prado) replaces naive return-direction labels with structurally sound targets:
 
-- **Upper Barrier:** Profit target at 1.5x ATR
-- **Lower Barrier:** Stop-loss at 2.0x ATR
-- **Vertical Barrier:** Maximum hold of 20 bars
+For each bar `t`, three barriers are defined. The price path `[t+1, t+max_hold]` is scanned and the first barrier touched determines the label.
+ 
+```
+upper    = price_t * (1 + pt_mult * vol_t)   →  label +1  (profit target)
+lower    = price_t * (1 - sl_mult * vol_t)   →  label -1  (stop loss)
+vertical at t + max_hold                      →  label  0  (timeout)
+```
+ 
+`vol_t` is the rolling standard deviation of log returns over a 20-bar lookback window.
+Barriers scale with local volatility so thresholds are consistent across high- and low-vol regimes.
+ 
+---
+ 
+## Calibration
+ 
+Before labeling, single-bar breach rates are printed to validate that multipliers are not trivially crossed:
+ 
+```
+> 2.5x vol (pt): 1.4% of bars breach in single step
+> 2.5x vol (sl): 1.4% of bars breach in single step
+```
+ 
+Label distribution is also checked across low / mid / high vol regimes. A spread > 5pp in the profit label
+across regimes signals systematic directional bias.
+ 
+---
+ 
+## Label Config
+ 
+| Parameter  | Value |
+|------------|-------|
+| `pt_mult`  | 2.5   |
+| `sl_mult`  | 2.5   |
+| `max_hold` | 20    |
+ 
+Timeout bars (`label == 0`, 11.1%) are dropped. Remaining labels are remapped to binary:
+`-1 → 0` (stop loss), `1 → 1` (profit target).
+ 
+```
+total bars after drop : 2033
+class balance         : 0.518  (near-balanced, no resampling required)
+```
 
-Split: 1423 train / 590 test bars, 20-bar embargo at the boundary to prevent leakage.
-Target balance (train): 0.55, near-balanced, no resampling required.
+
 
 **MDI vs MDA**
 
@@ -209,20 +247,9 @@ A Random Forest was trained on all stationary features with triple barrier label
 - **MDA (Mean Decrease Accuracy):** Out-of-sample permutation importance on held-out data. 
 
 
-| Feature | MDI Rank | MDA | Verdict |
-|---|---|---|---|
-| `volume` | 1 | +0.0118 | genuine signal, no direct causal return link in PCMCI |
-| `bb_width` | 2 | +0.0033 | genuine signal |
-| `taker_base` | 3 | +0.0072 | genuine signal |
-| `rsi` | 6 | -0.0124 | noise, causally downstream |
-| `vwap_distance` | 8 | -0.0033 | noise, confirmed sink node |
-
 RF1 (all features): train 0.701 / test 0.573. The 12.8pp gap signals overfitting.
-22 features were dropped: 20 with negative MDA, 2 combined weak.
+Features with negative MDA or in the bottom 30% of combined rank are dropped (22 features removed).
 
-`volume` carries the strongest MDA signal (+0.0118) despite lacking a direct causal return link in PCMCI. PCMCI tests direct lagged causal paths. `volume` likely acts as a proxy for latent market activity that PCMCI does not resolve into a single direct edge.
-
-**Final Feature Set (10 features, MDI/MDA validated):**
 
 | Feature | Causal Status |
 |---|---|
@@ -237,6 +264,9 @@ RF1 (all features): train 0.701 / test 0.573. The 12.8pp gap signals overfitting
 | `vol_regime_change` | binary, MDA confirmed |
 | `deep_drawdown` | binary, MDA confirmed |
 
+`volume` carries the strongest MDA signal (+0.0118) despite lacking a direct causal return link in PCMCI. PCMCI tests direct lagged causal paths. `volume` likely acts as a proxy for latent market activity that PCMCI does not resolve into a single direct edge.
+
+
 RF2 (final features): train 0.693 / test 0.573, identical test performance with
 less than half the features. The 22 dropped features contributed exclusively to
 in-sample overfitting, zero test signal.
@@ -249,103 +279,144 @@ were flagged as PCMCI sink nodes but survived MDA selection. Conversely,
 
 Standard k-fold leaks future information at fold boundaries due to rolling feature windows. Purged CV removes training samples whose window overlaps the test period, plus an embargo buffer of 1% of bars (20 bars) after each test fold.
 
-| Fold | Train | Test | Accuracy | AUC |
-|---|---|---|---|---|
-| 1 | 1607 | 406 | 0.539 | 0.552 |
-| 2 | 1587 | 406 | 0.559 | 0.606 |
-| 3 | 1587 | 406 | 0.537 | 0.585 |
-| 4 | 1587 | 406 | 0.537 | 0.608 |
-| 5 | 1604 | 409 | 0.582 | 0.582 |
-| **mean** | | | **0.551 ±0.020** | **0.587 ±0.023** |
-
-Naive 70/30 test accuracy was 0.573. Purged CV mean is 0.551, a leakage inflation of +2.2pp, consistent with rolling feature windows bleeding across the split boundary.
-
-AUC of 0.587 on triple barrier labels represents a genuine predictive edge and a
-meaningful improvement over the initial full-feature baseline (0.533). Accuracy of 0.551 at a baseline of 0.518 is modest (+3.3pp above chance) but consistent across all five folds with no outlier fold, confirming the edge is structural rather than fold-specific.
+```
+folds        : 5
+embargo_pct  : 0.0098  (20 bars)
+```
+ 
+| Metric    | Mean   | Std    |
+|-----------|--------|--------|
+| Accuracy  | 0.5459 | 0.0210 |
+| AUC       | 0.5961 | 0.0230 |
+| Log Loss  | 0.6966 | 0.0244 |
+ 
+```
+naive 70/30 test accuracy : 0.5729
+purged cv mean accuracy   : 0.5459
+leakage inflation estimate: +0.0269
+```
+ 
+AUC = 0.5961
 
 ---
 
 ## Regime Detection & Strategy
 
-Volatility regimes were identified using a Hidden Markov Model (HMM) and labeled
-as three discrete states: low (0), medium (1), high (2). The regime classifier
-predicts the next bar's regime state using a dedicated 10-feature set.
+A second classifier predicts the **volatility regime of the next bar** (0=low, 1=med, 2=high)
+using 10 regime-specific features. 
+ 
+### Features
+ 
+Features are drawn from MDA-validated inputs of the main model, plus regime-specific additions:
+`bb_position`, `extreme_streak`, `atr_normalized`, `vol_persistence`, `tail_risk_signal`,
+`bb_width`, `volatility_7b`, `volume_zscore`, `dollar_vol_z`, `market_stress`
+ 
+### Model
+ 
+Same `RandomForestClassifier` setup as the main model, `max_depth=5`, `min_samples_leaf=15`.
+Purged K-Fold (5 splits) with identical embargo. OOS probabilities are NaN-initialized so
+purged/embargoed bars are never silently assigned to class 0.
+ 
+### Results
+ 
+```
+baseline accuracy (majority class) : 0.4375
+model accuracy (purged cv mean)    : 0.6324
+lift over baseline                 : +0.1949
+```
+ 
+| Class | AUC mean | AUC std |
+|-------|----------|---------|
+| low   | 0.8592   | 0.0195  |
+| med   | 0.7230   | 0.0192  |
+| high  | 0.9126   | 0.0107  |
+ 
+High and low regimes are predicted with strong confidence. Medium regime is harder to separate,
+as expected given its transitional nature.
+ 
+### Regime Transition Matrix
+ 
+Empirical one-step transition probabilities (row = current, col = next):
+ 
+```
+        →low   →med  →high
+low    0.721  0.262  0.018
+med    0.169  0.672  0.160
+high   0.012  0.250  0.738
+```
+ 
+Regimes are strongly persistent. Direct low→high transitions are near-zero (1.8%),
+which the model implicitly exploits.
+ 
+### Feature Importance (MDI, mean across folds)
+ 
+```
+market_stress    0.3735
+volatility_7b    0.2901
+bb_position      0.1075
+vol_persistence  0.1000
+```
+ 
+`market_stress` and `volatility_7b` together account for ~66% of impurity reduction.
 
-**Regime Distribution:** low 27.7% / medium 43.8% / high 28.6%.
-Majority-class baseline: 43.8%.
-
-**Persistence Structure:**
-
-| Current → Next | Low | Medium | High |
-|---|---|---|---|
-| Low | 0.721 | 0.262 | 0.018 |
-| Medium | 0.169 | 0.672 | 0.160 |
-| High | 0.012 | 0.250 | 0.738 |
-
-Regimes are strongly self-persistent (diagonal 0.67–0.74). The classifier
-exploits this directly, it predicts whether the current state continues,
-not price direction.
-
-**Purged CV Results:**
-
-| Fold | Accuracy | AUC (low) | AUC (med) | AUC (high) |
-|---|---|---|---|---|
-| 1 | 0.596 | 0.852 | 0.701 | 0.908 |
-| 2 | 0.655 | 0.849 | 0.715 | 0.925 |
-| 3 | 0.613 | 0.839 | 0.739 | 0.908 |
-| 4 | 0.638 | 0.889 | 0.746 | 0.922 |
-| 5 | 0.659 | 0.867 | 0.713 | 0.900 |
-| **mean** | **0.632** | **0.859 ±0.020** | **0.723 ±0.019** | **0.913 ±0.011** |
-
-Lift over baseline: **+19.5pp**, consistent across all folds. Low and high
-regimes are nearly perfectly separable (AUC 0.859 / 0.913). Medium is harder
-(0.723), structurally ambiguous as the transition state between extremes.
 
 ![Regime Detection](results/regime_detection.png)
 
-Two systematic failure modes are visible: a one-bar lag at transitions, and
-systematic underrepresentation of medium regime predictions. Model confidence
-rarely exceeds 0.7 except during sustained high-volatility blocks where
-`p(high)` briefly spikes above 0.8. `market_stress` and `volatility_7b`
-account for 66% of MDI importance, confirming regimes are fundamentally
-volatility states.
+
 
 ### Regime-Conditioned Return Prediction:
-
-Two approaches were tested to combine regime and return models:
-
-*Approach 1. Regime Probabilities As Features:*
-
-| Metric | Global | Regime-conditioned | Delta |
-|---|---|---|---|
-| Accuracy | 0.551 | 0.564 | +0.014 |
-| AUC | 0.587 | 0.596 | +0.009 |
-
-Marginal improvement. The global model already captures implicit regime
-structure through `vol_regime_change` and `deep_drawdown`.
-
-*Approach 2. Separate Model Per Regime:*
-
-| Regime | Bars | AUC | Delta vs global |
-|---|---|---|---|
-| Low    | 562 | 0.542 | -0.054 |
-| Medium | 889 | 0.553 | -0.043 |
-| High   | 581 | 0.658 | +0.062 |
-
-The global AUC of 0.596 reflects mixed signal, concentrated in high-volatility periods and diluted by noise in low and medium regimes.
-
+ 
+Regime probabilities (`prob_low`, `prob_med`, `prob_high`) are appended as features to the
+main return model (13 features total). Purged CV is re-run and deltas computed.
+ 
+```
+accuracy  mean=0.5644  delta vs baseline: +0.0185
+auc       mean=0.5959  delta vs baseline: -0.0002
+```
+ 
+No meaningful AUC change. Soft regime features add marginal accuracy but do not improve ranking ability.
+ 
+### Per-Regime Models
+ 
+Separate return models are trained per regime subset. At prediction time the active regime
+determines which model is queried.
+ 
+| Regime | Bars | AUC mean | AUC std | Delta vs global |
+|--------|------|----------|---------|-----------------|
+| low    | 562  | 0.5420   | 0.0732  | -0.054          |
+| medium | 889  | 0.5532   | 0.0643  | -0.043          |
+| high   | 581  | 0.6579   | 0.0690  | **+0.062**      |
+ 
+Only the high-regime model outperforms the global model. Low and medium regimes lack sufficient
+signal to justify specialization. This motivates restricting live signals to high-volatility regimes.
+ 
 
 **Walk-Forward Backtest:**
 
-The regime classifier and return model are combined into a single strategy:
-active only in predicted high-volatility regimes. Stop-loss at 1.0x ATR, take-profit at 1.5x ATR. Note: barriers diverge from the triple barrier
-label construction (pt_sl=[2.5, 2.5]) Both models are re-fitted every
-50 bars on past data only, no future information leaks into any prediction.
-HMM Viterbi decoding is limited to the current window to prevent look-ahead
-in state assignment.
-
-Signal logic: long when `prob_high > 0.55` and `ret_prob > 0.55`, short
-when `ret_prob < 0.45`. Stop-loss at 1.0x ATR, take-profit at 1.5x ATR.
+Full walk-forward simulation with no look-ahead leakage. Parameters:
+ 
+```
+min_train     = 600 bars
+retrain_every = 50  bars
+fee           = 0.05% per side
+bar_freq      = 10h
+```
+ 
+At each step: HMM is refit on past volatility only, Viterbi decoding is applied only up to
+the current bar (not the full dataset), regime classifier and return model are retrained on
+past bars. Return model is trained on **high-regime bars only**.
+ 
+### Signal Logic
+ 
+```
+in_regime    = prob_high > 0.55
+long_entry   = in_regime AND ret_prob > 0.55   (lagged 1 bar)
+short_entry  = in_regime AND ret_prob < 0.45   (lagged 1 bar)
+sl_stop      = 1.0 * atr_raw / close
+tp_stop      = 1.5 * atr_raw / close
+```
+ 
+### Output
 
 | Metric | Strategy | Buy & Hold |
 |---|---|---|
