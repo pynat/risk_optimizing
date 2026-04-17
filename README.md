@@ -1,5 +1,3 @@
-# UNDER CONSTRUCTION
-
 # De Prado ML Framework with Causal Discovery: Regime Prediction + Strategy for ETH Dollar Bars
 
 ## Overview
@@ -26,7 +24,7 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 - **Random Forest with Purged K-Fold CV** n=5 folds, embargo=1%, prevents temporal leakage
 - **MDI/MDA Feature Importance** cross-referenced with causal graph to validate signal vs noise
 - **Per-Regime Model Evaluation** separate RF per regime, high-vol identified as sole regime with positive edge (auc=0.658, delta=+0.062 vs global)
-- **Walk-Forward Backtest** expanding window, hmm+rf refitted every 50 bars, trade signal active only in predicted high-vol regime, no future leakage
+- **Walk-Forward Backtest** expanding window, hmm+rf refitted every 50 bars, trade signal active only in predicted high-vol regime. Leakage prevention: HMM refit at each step on past bars only, Viterbi decoding is applied strictly up to the current bar, all scalers and models are trained exclusively on the expanding window available at prediction time.
 
 
 ## Results (Out-Of-Sample, Purged CV)
@@ -424,9 +422,15 @@ tp_stop      = 1.5 * atr_raw / close
 
 
 **Limitations:** 
-94 trades over 1.5 years, benchmark period (Aug 2024 - Mar 2026) was a bear market for ETH. Hyperparameters were selected on the same data period, no fully independent out-of-sample period exists.    
+94 trades over 1.5 years. The benchmark period (Aug 2024 - Mar 2026) 
+was a bear market for ETH.  
+All hyperparameters (pt_mult, prob_high threshold, retrain_every, max_depth, min_samples_leaf) were selected by iterating on the same period used for backtesting. 
+The system as a whole was implicitly optimized on the full data period. 
+A 5-year lookback OOS test showed no edge, but the structural differences between early and late crypto markets (liquidity, participant composition, volatility structure) make direct comparability hard.
+
+
 This backtest is a proof-of-concept, not a validated trading system.
-  
+
 ---
 
 
