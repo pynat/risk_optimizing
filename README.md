@@ -35,9 +35,9 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 | AUC low / med / high | 0.859 / 0.723 / 0.913 |
 | Return model AUC (regime-conditioned) | 0.596 |
 | Return model AUC (high regime) | 0.658 (+0.062 vs global) |
-| Backtest total return | +157.3% vs -27.7% buy & hold |
-| Backtest Sharpe (walk-forward) | 1.735 |
-| Backtest max drawdown | -22.0% vs -65.0% buy & hold |
+| Backtest total return | 202.63% vs -27.7% buy & hold |
+| Backtest Sharpe (walk-forward) | 2.052 |
+| Backtest max drawdown | -27.53% vs -65.0% buy & hold |
 
 **Regime Persistence (P(next \| current)):**
 
@@ -46,16 +46,6 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 | low | 0.721 | 0.262 | 0.018 |
 | med | 0.169 | 0.672 | 0.160 |
 | high | 0.012 | 0.250 | 0.738 |
-
-**Regime Classifier Feature Importance (MDI, Mean Across Folds):**
-
-| Feature | Importance |
-|---|---|
-| `market_stress` | 0.374 |
-| `volatility_7b` | 0.290 |
-| `bb_position` | 0.108 |
-| `vol_persistence` | 0.100 |
-
 
 
 ---
@@ -125,59 +115,46 @@ Due to correlation alaysis one would drop features of this group, but we will ke
 ---
 ## Causal Discovery (PCMCI)
 
-Causal discovery via PCMCI (Tigramite, ParCorr, α=0.05, lags 1–5) was used to map
-directional dependencies between features, separating true drivers from downstream
-nodes before model training.
+Causal discovery via PCMCI (Tigramite, ParCorr, α=0.05, lags 1–5) maps
+directional time-lagged dependencies between features. Binary features excluded.
 
-**Purpose:** Identify genuine predictive signals vs. construction artifacts. 
+**Structural drivers (hub nodes):**
+- `ret_raw` drives drawdown (lag1–5, up to 0.57), vwap_distance (0.87), taker_sell_vol (0.40)
+- `ofi` drives volume (0.43), taker_sell_vol (0.86), taker_quote (0.75)
+- `trade_intensity_z` drives trades_change (0.86), taker_base (0.31)
+- `volume_change` drives volume (0.48), taker_base (0.20), taker_sell_vol (0.27)
+
+**Sink nodes (result nodes, no predictive outgoing edges):**
+`vwap_distance`, `dollar_volume`, `taker_quote`, `taker_sell_vol`,
+`taker_base`, `rolling_vol`, `extreme_streak`, `drawdown`, `volume`
+
+**Construction artifacts (high strength by definition, not signal):**
+- `ofi → taker_sell_vol / taker_quote` (0.86–0.98)
+- `ret_raw / rsi / bb_position → vwap_distance` (0.85–0.93)
+- `dollar_vol_z / volume_zscore → dollar_volume` (0.89)
+- `trade_intensity_z → trades_change` (0.86)
+
+### Lag Feature Engineering
+
+PCMCI revealed that hub nodes unfold their causal effect over multiple lags,
+which the random forest cannot detect automatically. Based on the strongest
+causal links to top RF features (volume, drawdown, taker_base), the following
+lag features were engineered explicitly:
+
+```python
+df['ret_raw_lag1']           = df['ret_raw'].shift(1)          # → drawdown (0.35), vwap_distance (0.87)
+df['ret_raw_lag2']           = df['ret_raw'].shift(2)          # → drawdown (0.57), strongest single link
+df['ofi_lag1']               = df['ofi'].shift(1)             # → volume (0.43), taker_sell_vol (0.86)
+df['volume_change_lag1']     = df['volume_change'].shift(1)   # → volume (0.48)
+df['volume_change_lag2']     = df['volume_change'].shift(2)   # → volume (0.39)
+df['trade_intensity_z_lag2'] = df['trade_intensity_z'].shift(2) # → taker_base (0.31)
+```
 
 
-**Causal Links To Return Targets:**
-- `volume_change → ret_raw` (lag 1, 0.23): strongest real signal, abnormal volume
-  growth directly predicts the primary return target
-- `bb_width → ret_raw` (lag 1, 0.16): band expansion precedes directional move
-- `rsi → ret_5` (lag 1–2): momentum extreme predicts multi-bar return direction
+Adding these features to the walk-forward model improved total return and Sharpe ratio.
+No leakage: all lags use strictly past values. Minor feature-selection bias exists
+as PCMCI was run on the full dataset, but does not see labels.
 
-**Cross-Domain Links:**
-- `rsi / ret_raw → drawdown` (lag 1, 0.78 / 0.88): momentum extremes and recent
-  losses predict cumulative drawdown, drawdown is a sink node
-- `atr_normalized / vol_momentum / vol_regime → extreme_streak` (lag 1, 0.24–0.42):
-  regime-level vol predicts tail event persistence, extreme_streak is a sink node
-- `market_stress → vol_momentum` (lag 1, 0.28): composite stress drives vol
-  trajectory, vol_momentum is a neutral node
-
-**Construction Artifacts:**
-features computed from the same underlying series:
-- `ofi → taker_sell_vol / taker_quote` (0.98): by definition, ofi is the normalized
-  difference of those two quantities
-- `ret_raw / ret_5 / rsi / bb_position → vwap_distance` (0.86–0.99): all price-location
-  measures, high lag=0 redundancy persists into lag=1
-- `dollar_vol_z / volume_zscore → dollar_volume` (0.83): z-scores of dollar_volume
-- `trade_intensity_z → trades_change` (0.91): both derived from `trades`
-- `ret_5 ↔ ret_raw` (0.69–0.91): multi-bar vs. single-bar return overlap
-- `volume_change → taker_base / taker_quote / taker_sell_vol` (0.45–0.69):
-  volume_change is derived directly from `volume`
-
-**Correlation vs. Causation:**
-
-Correlation analysis flagged `rsi`, `bb_position`, and `vwap_distance` as
-near-duplicates (corr > 0.85).   
-PCMCI shows`bb_position` with outgoing link to `vwap_distance`.
-`rsi`in interaction with `ret_5` and a link to `drawdown`.
-`vwap_distance` is shown as a sink node, influenced by several features, `bb_width`, `atr_normalized`, `return_5`.
-
-**Sink Nodes, No Outgoing Edges:**
-- `vwap_distance`: caused by rsi / bb_position / ret_raw etc.
-- `dollar_volume`: pure sink driven by volume_zscore, dollar_vol_z, volume_change
-- `taker_quote`, `taker_sell_vol`: sinks by construction via ofi and volume_change
-- `taker_base`: peripheral sink, no return links
-- `rolling_vol`: near-pure autocorrelation, no outgoing return links
-- `extreme_streak`: sink, receives from vol / atr, no return links
-- `drawdown`: driven by rsi / ret_raw, result node, not a predictor
-- `volume`: driven by `volume_zscore`, `dollar_vol_z`, `rsi`, `atr_normalized`
-
-**Interpretation:** PCMCI results are used as a structural filter.
-Binary features were excluded from PCMCI; only continuous/ordinal features tested.
 
 ![PCMCI Algorithm With Strongest Edges](results/pcmci_dag.png)
    
@@ -242,27 +219,38 @@ A Random Forest was trained on all stationary features with triple barrier label
 - **MDA (Mean Decrease Accuracy):** Out-of-sample permutation importance on held-out data. 
 
 
-RF1 (all features): train 0.701 / test 0.573. The 12.8pp gap signals overfitting.
-Features with negative MDA or in the bottom 30% of combined rank are dropped (22 features removed).
+RF1 (all features): train 0.683 / test 0.573. The gap signals overfitting.
+Features with negative MDA or in the bottom 30% of combined rank are dropped (24 features removed).
 
+### PCMCI Lag Features in RF
+
+| Feature | MDI rank | MDA | Causal link |
+|---|---|---|---|
+| `ret_raw_lag1` | mid | positive | → drawdown (0.35), vwap_distance (0.87) |
+| `ret_raw_lag2` | mid | positive | → drawdown (0.57), strongest single link |
+| `ofi_lag1` | mid | slightly positive | → volume (0.43) |
+| `volume_change_lag1` | low | near zero | → volume (0.48) |
+| `trade_intensity_z_lag2` | low | near zero | → taker_base (0.31) |
+
+### Causal vs. RF Alignment
 
 | Feature | Causal Status |
 |---|---|
 | `bb_width` | direct return link (ret_raw) |
 | `atr_normalized` | driver of extreme_streak |
-| `drawdown` | sink in PCMCI, but MDI/MDA confirmed |
-| `volume` | sink in PCMCI |
+| `drawdown` | sink in PCMCI, MDI/MDA confirmed |
+| `volume` | sink in PCMCI, strongest MDI |
 | `taker_base` | peripheral in PCMCI, MDA confirmed |
-| `position_size_factor` | neutral node |
-| `trade_intensity_z` | routes to artifact sinks |
-| `extreme_streak` | sink node, MDA confirmed |
-| `vol_regime_change` | binary, MDA confirmed |
-| `deep_drawdown` | binary, MDA confirmed |
+| `deep_drawdown` | binary, top MDA |
+| `trade_intensity_z` | hub in PCMCI, neutral MDA |
 
-`volume` carries the strongest MDA signal (+0.0118) despite lacking a direct causal return link in PCMCI. PCMCI tests direct lagged causal paths. `volume` likely acts as a proxy for latent market activity that PCMCI does not resolve into a single direct edge.
+Notable conflicts: `rsi` has direct causal links in PCMCI but strongly negative MDA.
+`vol_momentum` and `taker_sell_vol` are negative in MDA despite causal presence.
+Both are dropped. `volume` remains the strongest MDI feature despite being a PCMCI
+sink, likely proxying latent market activity not resolved into a single causal edge.
 
 
-RF2 (final features): train 0.693 / test 0.573, identical test performance with less than half the features. The 22 dropped features contributed exclusively to in-sample overfitting, zero test signal.
+RF2 (final features): train 0.683 / test 0.573, identical test performance with less than half the features. The 24 dropped features contributed exclusively to in-sample overfitting, zero test signal.
 
 Notable conflict between methods: `drawdown`, `extreme_streak`, and `taker_base` were flagged as PCMCI sink nodes but survived MDA selection. Conversely, `volume_change` and `rsi` showed direct return links in PCMCI but were eliminated by negative MDA. 
 
@@ -277,17 +265,16 @@ embargo_pct  : 0.0098  (20 bars)
  
 | Metric    | Mean   | Std    |
 |-----------|--------|--------|
-| Accuracy  | 0.5459 | 0.0210 |
-| AUC       | 0.5961 | 0.0230 |
-| Log Loss  | 0.6966 | 0.0244 |
+| Accuracy  | 0.5548 | 0.0291 |
+| AUC       | 0.6096 | 0.0341 |
+| Log Loss  | 0.6918 | 0.0239 |
  
 ```
-naive 70/30 test accuracy : 0.5729
-purged cv mean accuracy   : 0.5459
-leakage inflation estimate: +0.0269
+naive 70/30 test accuracy : 0.5746
+purged cv mean accuracy   : 0.5548
+leakage inflation estimate: +0.0198
 ```
- 
-AUC = 0.5961
+
 
 ---
 
@@ -322,8 +309,7 @@ lift over baseline                 : +0.1949
 | med   | 0.7230   | 0.0192  |
 | high  | 0.9126   | 0.0107  |
  
-High and low regimes are predicted with strong confidence. Medium regime is harder to separate,
-as expected given its transitional nature.
+High and low regimes are predicted with strong confidence. Medium regime is harder to separate, as expected given its transitional nature.
  
 ### Regime Transition Matrix
  
@@ -339,7 +325,7 @@ high   0.012  0.250  0.738
 Regimes are strongly persistent. Direct low→high transitions are near-zero (1.8%),
 which the model implicitly exploits.
  
-### Feature Importance (MDI, mean across folds)
+### Feature Importance For Regime Detection (MDI, mean across folds)
  
 ```
 market_stress    0.3735
@@ -358,28 +344,26 @@ vol_persistence  0.1000
 ### Regime-Conditioned Return Prediction:
  
 Regime probabilities (`prob_low`, `prob_med`, `prob_high`) are appended as features to the
-main return model (13 features total). Purged CV is re-run and deltas computed.
+main return model (14 features total). Purged CV is re-run and deltas computed.
  
 ```
-accuracy  mean=0.5644  delta vs baseline: +0.0185
-auc       mean=0.5959  delta vs baseline: -0.0002
+accuracy  mean=0.5674  delta vs baseline: +0.0126
+auc       mean=0.6011  delta vs baseline: -0.0086
 ```
  
-No meaningful AUC change. Soft regime features add marginal accuracy but do not improve ranking ability.
  
 ### Per-Regime Models
  
 Separate return models are trained per regime subset. At prediction time the active regime
 determines which model is queried.
  
-| Regime | Bars | AUC mean | AUC std | Delta vs global |
-|--------|------|----------|---------|-----------------|
-| low    | 562  | 0.5420   | 0.0732  | -0.054          |
-| medium | 889  | 0.5532   | 0.0643  | -0.043          |
-| high   | 581  | 0.6579   | 0.0690  | **+0.062**      |
+| Regime | Bars | Mean Acc | AUC mean | AUC std | Delta vs global |
+|--------|------|----------|----------|---------|-----------------|
+| low    | 562  | 0.587    | 0.583    | 0.074   | -0.027          |
+| medium | 889  | 0.560    | 0.567    | 0.063   | -0.043          |
+| high   | 581  | 0.594    | 0.651    | 0.068   | **+0.041**      |
  
-Only the high-regime model outperforms the global model. Low and medium regimes lack sufficient
-signal to justify specialization. This motivates restricting live signals to high-volatility regimes.
+Only the high-regime model outperforms the global model. Low and medium regimes lack sufficient signal to justify specialization. This motivates restricting live signals to high-volatility regimes.
  
 
 **Walk-Forward Backtest:**
@@ -411,14 +395,27 @@ tp_stop      = 1.5 * atr_raw / close
 
 | Metric | Strategy | Buy & Hold |
 |---|---|---|
-| Total return | 157.33% | -27.71% |
-| Sharpe ratio | 1.735 | 0.057 |
-| Max drawdown | -22.01% | -64.98% |
-| Total trades | 94 | — |
-| Win rate | 61.7% | — |
-| Avg trade return | 1.134% | — |
+| Total return | 202.63% | -27.71% |
+| Sharpe ratio | 2.052 | 0.057 |
+| Max drawdown | -27.53% | -64.98% |
+| Calmar ratio | 3.516 | — |
+| Total trades | 91 | — |
+| Win rate | 58.2% | — |
+| Avg trade return | 1.353% | — |
+
+### Trade Statistics
+
+| Metric | Value |
+|---|---|
+| Avg duration (bars) | 4.9 |
+| Median duration | 4.0 |
+| Return std | 5.08% |
+| p25 / p75 return | -3.59% / +5.99% |
+| Worst trade | -9.70% |
+| Best trade | +10.45% |
 
 ![Equity Curve](results/backtest_equity.png)
+
 
 
 **Limitations:** 
