@@ -436,8 +436,8 @@ tp_stop      = 1.5 * atr_raw / close
 
 
 **Limitations:** 
-94 trades over 1.5 years. The benchmark period (Aug 2024 - Mar 2026) 
-was a bear market for ETH.  
+91 trades over 1.5 years. The benchmark period (Aug 2024 - Mar 2026) 
+was a bear market for ETH.    
 All hyperparameters (pt_mult, prob_high threshold, retrain_every, max_depth, min_samples_leaf) were selected by iterating on the same period used for backtesting. 
 The system as a whole was implicitly optimized on the full data period. 
 A 5-year lookback OOS test showed no edge, but the structural differences between early and late crypto markets (liquidity, participant composition, volatility structure) make direct comparability hard.
