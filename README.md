@@ -12,7 +12,7 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 
 ### Research Question
 
-*Can causal feature selection and volatility regime conditioning produce a predictive edge that survives walk-forward validation with a deployable trading strategy?*
+*Does replacing correlation-based feature selection with causal discovery (PCMCI) improve out-of-sample predictive stability in a regime-conditioned trading system on ETH dollar bars?*
 
 ### Methodology
 
@@ -46,6 +46,8 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 | low | 0.721 | 0.262 | 0.018 |
 | med | 0.169 | 0.672 | 0.160 |
 | high | 0.012 | 0.250 | 0.738 |
+
+
 
 
 ---
@@ -253,6 +255,21 @@ sink, likely proxying latent market activity not resolved into a single causal e
 RF2 (final features): train 0.683 / test 0.573, identical test performance with less than half the features. The 24 dropped features contributed exclusively to in-sample overfitting, zero test signal.
 
 Notable conflict between methods: `drawdown`, `extreme_streak`, and `taker_base` were flagged as PCMCI sink nodes but survived MDA selection. Conversely, `volume_change` and `rsi` showed direct return links in PCMCI but were eliminated by negative MDA. 
+
+
+
+### What PCMCI Added Beyond RF
+
+The RF alone assigned `ofi` low importance because it sees the feature at t=0,
+where stronger in-sample splits dominate. PCMCI identified `ofi` as a structural
+hub driving `volume` (0.43), `taker_sell_vol` (0.86), and `taker_quote` (0.75)
+across lag 1. Explicitly engineering `ofi_lag1` produced the only PCMCI-derived
+feature that survived final MDA selection into the 11-feature model. The remaining
+lag features (`ret_raw_lag1/2`, `volume_change_lag1/2`, `trade_intensity_z_lag2`)
+improved walk-forward performance but were eliminated by MDA as insufficiently
+stable out-of-sample. `ofi_lag1` is the single concrete contribution of causal
+discovery to the final feature set.
+
 
 **Purged K-Fold Cross Validation**
 
