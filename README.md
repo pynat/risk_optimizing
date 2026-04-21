@@ -12,7 +12,7 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 
 ### Research Question
 
-*Does replacing correlation-based feature selection with causal discovery (PCMCI) improve out-of-sample predictive stability in a regime-conditioned trading system on ETH dollar bars?*
+*Does PCMCI-based causal discovery create informative features for a regime-conditioned trading system on ETH dollar bars?*
 
 ### Methodology
 
@@ -27,7 +27,7 @@ The analysis is conducted on **dollar bars** ($500M threshold), which sample obs
 - **Walk-Forward Backtest** expanding window, hmm+rf refitted every 50 bars, trade signal active only in predicted high-vol regime. Leakage prevention: HMM refit at each step on past bars only, Viterbi decoding is applied strictly up to the current bar, all scalers and models are trained exclusively on the expanding window available at prediction time.
 
 
-## Results (Out-Of-Sample, Purged CV)
+## Results
 
 | Metric | Value |
 |---|---|
